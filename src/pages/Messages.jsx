@@ -50,15 +50,21 @@ export default function Messages() {
   const fetchConversations = async () => {
     const { data } = await supabase
       .from('messages')
-      .select('sender_id, receiver_id, profiles!messages_sender_id_fkey(*), profiles!messages_receiver_id_fkey(*)')
+      .select(`
+        sender_id, 
+        receiver_id, 
+        created_at,
+        sender:profiles!messages_sender_id_fkey(*), 
+        receiver:profiles!messages_receiver_id_fkey(*)
+      `)
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
       .order('created_at', { ascending: false })
 
     if (data) {
       const uniqueUsers = new Map()
       data.forEach(msg => {
-        const otherUser = msg.sender_id === user.id ? msg.profiles : msg.profiles
-        if (!uniqueUsers.has(otherUser.id)) {
+        const otherUser = msg.sender_id === user.id ? msg.receiver : msg.sender
+        if (otherUser && !uniqueUsers.has(otherUser.id)) {
           uniqueUsers.set(otherUser.id, otherUser)
         }
       })
@@ -95,10 +101,41 @@ export default function Messages() {
         schema: 'public',
         table: 'messages',
         filter: `receiver_id=eq.${user.id}`
-      }, (payload) => {
+      }, async (payload) => {
+        // Add message to current conversation if it's from selected user
         if (selectedUser && payload.new.sender_id === selectedUser.id) {
-          setMessages(prev => [...prev, payload.new])
+          // Fetch the complete message with sender info
+          const { data: messageWithSender } = await supabase
+            .from('messages')
+            .select('*, sender:profiles!messages_sender_id_fkey(*)')
+            .eq('id', payload.new.id)
+            .single()
+          if (messageWithSender) {
+            setMessages(prev => [...prev, messageWithSender])
+          }
         }
+        // Refresh conversations to show new conversation
+        fetchConversations()
+      })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `sender_id=eq.${user.id}`
+      }, async (payload) => {
+        // Add message to current conversation if it's to selected user
+        if (selectedUser && payload.new.receiver_id === selectedUser.id) {
+          // Fetch the complete message with sender info
+          const { data: messageWithSender } = await supabase
+            .from('messages')
+            .select('*, sender:profiles!messages_sender_id_fkey(*)')
+            .eq('id', payload.new.id)
+            .single()
+          if (messageWithSender) {
+            setMessages(prev => [...prev, messageWithSender])
+          }
+        }
+        // Refresh conversations to show new conversation
         fetchConversations()
       })
       .subscribe()
@@ -142,9 +179,19 @@ export default function Messages() {
         .single()
 
       if (!error && data) {
+        // Add message to current conversation immediately
         setMessages(prev => [...prev, data])
         setNewMessage('')
         setFile(null)
+        
+        // Add user to conversations if not already there
+        setConversations(prev => {
+          const exists = prev.some(conv => conv.id === selectedUser.id)
+          if (!exists) {
+            return [selectedUser, ...prev]
+          }
+          return prev
+        })
       }
     } catch (err) {
       alert('Failed to send message')
