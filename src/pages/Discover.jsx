@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import ProfileCard from '../components/ProfileCard'
 import { Search, Filter } from 'lucide-react'
 import Navbar from '../components/Navbar'
 
 export default function Discover() {
+  const { user } = useAuth()
   const [profiles, setProfiles] = useState([])
   const [filteredProfiles, setFilteredProfiles] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -13,8 +15,10 @@ export default function Discover() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchProfiles()
-  }, [])
+    if (user) {
+      fetchProfiles()
+    }
+  }, [user])
 
   useEffect(() => {
     filterAndSortProfiles()
@@ -25,6 +29,7 @@ export default function Discover() {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
+      .neq('id', user?.id) // Exclude current user's profile
     
     if (!error && data) {
       setProfiles(data)
