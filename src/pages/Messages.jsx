@@ -3,10 +3,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase, uploadMessageFile } from '../lib/supabase'
 import { Send, Paperclip, User } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
+import { useSearchParams } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 
 export default function Messages() {
   const { user, profile } = useAuth()
+  const [searchParams] = useSearchParams()
   const [conversations, setConversations] = useState([])
   const [selectedUser, setSelectedUser] = useState(null)
   const [messages, setMessages] = useState([])
@@ -18,8 +20,26 @@ export default function Messages() {
     if (user) {
       fetchConversations()
       subscribeToMessages()
+      
+      // Check if there's a user parameter in URL
+      const userId = searchParams.get('user')
+      if (userId) {
+        loadUserFromId(userId)
+      }
     }
-  }, [user])
+  }, [user, searchParams])
+
+  const loadUserFromId = async (userId) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    
+    if (data) {
+      setSelectedUser(data)
+    }
+  }
 
   useEffect(() => {
     if (selectedUser) {
